@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<title>微生物醫檢師冒險：臨床鑑定標準版</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--accent:#3b82f6;--text:#f8fafc;--border:#334155}
+body{margin:0;font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;background:var(--bg);color:var(--text);line-height:1.6; overflow-x: hidden;}
+.app{display:flex;gap:20px;padding:20px;max-width:1400px;margin:0 auto}
+#main{flex:3}
+#sidebar{flex:1;max-width:380px}
+.card{background:var(--card);padding:24px;border-radius:12px;border:1px solid var(--border);box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);margin-bottom:16px}
+h1, h2, h3{margin-top:0;color:#60a5fa}
+button{margin:8px 8px 8px 0;padding:10px 18px;border-radius:8px;border:none;background:var(--accent);color:white;cursor:pointer;font-weight:600;transition:all 0.2s}
+button:hover:not(:disabled){background:#2563eb;transform:translateY(-1px)}
+button.secondary{background:#10b981}
+button.danger{background:#ef4444}
+button:disabled{background:#475569;color:#94a3b8;cursor:not-allowed; transform: none !important;}
+.small{font-size:0.875rem;color:#94a3b8}
+#scoreBarContainer{width:100%;background:#334155;border-radius:10px;overflow:hidden;height:24px;margin-bottom:8px}
+#scoreBar{height:24px;width:100%;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);color:#fff;text-align:center;line-height:24px;font-weight:700;transition:width 0.5s}
+pre#memory{white-space:pre-wrap;font-family:inherit;background:#0f172a;padding:12px;border-radius:6px;font-size:0.9rem;border:1px solid var(--border);max-height:300px;overflow-y:auto}
+.option-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(130px, 1fr));gap:10px;margin:15px 0}
+.checkbox-item{display:flex;align-items:center;background:#334155;padding:8px;border-radius:6px;cursor:pointer;font-size: 0.9rem;}
+.checkbox-item input{margin-right:8px}
+
+#notification-overlay {
+    position: fixed;
+    top: 20%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+    padding: 20px 40px;
+    border-radius: 12px;
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: white;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    display: none;
+    animation: fadeInOut 2s forwards;
+}
+@keyframes fadeInOut {
+    0% { opacity: 0; transform: translate(-50%, -60%); }
+    15% { opacity: 1; transform: translate(-50%, -50%); }
+    85% { opacity: 1; transform: translate(-50%, -50%); }
+    100% { opacity: 0; transform: translate(-50%, -40%); }
+}
+
+.image-viewer {
+    margin-top: 15px; padding: 10px; background: #000; border-radius: 8px; text-align: center; border: 2px solid var(--accent); display: none;
+}
+.image-viewer img { max-width: 100%; max-height: 300px; border-radius: 4px; object-fit: contain; }
+.case-summary { background: #0f172a; padding: 15px; border-radius: 8px; border-left: 4px solid var(--accent); margin-bottom: 20px; }
+.specimen-tag { display: inline-block; background: #60a5fa; color: #0f172a; padding: 4px 10px; border-radius: 4px; font-weight: bold; margin-bottom: 10px; }
+.result-img { width: 100%; max-width: 500px; border-radius: 12px; margin: 15px 0; border: 3px solid var(--accent); }
+#leaderboardTable { width: 100%; border-collapse: collapse; margin-top: 15px; }
+#leaderboardTable th, #leaderboardTable td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border); }
+#leaderboardTable th { color: #60a5fa; }
+input[type="text"] { background: #0f172a; color: white; border: 1px solid var(--border); padding: 8px; border-radius: 4px; margin-right: 8px; }
+</style>
+</head>
+<body>
+
+<div id="notification-overlay"></div>
+
+<div class="app">
+  <div id="main">
+    <h1>🔬 微生物醫檢師冒險</h1>
+
+    <div id="startCard" class="card">
+      <h2>專業生涯模式</h2>
+      <p>分數會跨病案累積。挑戰在有限的分數內鑑定所有病患。</p>
+      <button id="startBtn">開始執業</button>
+      <button id="viewLeaderboardBtn" class="secondary">查看本地排行榜</button>
+    </div>
+
+    <div id="gameArea"></div>
+  </div>
+
+  <div id="sidebar">
+    <div class="card">
+      <h3>🏥 專業指標</h3>
+      <div id="scoreBarContainer">
+        <div id="scoreBar">100</div>
+      </div>
+      <div class="small">累積治癒病患：<span id="correctCount" style="color:#10b981;font-weight:bold">0</span></div>
+      <div class="small">總計執業時間：<span id="timer">0</span> 秒</div>
+    </div>
+
+    <div class="card">
+      <h3>📒 回憶紀錄</h3>
+      <pre id="memory">（尚未開始鑑定...）</pre>
+    </div>
+
+    <div id="actionPanel" class="card" style="display:none">
+      <h3>⚡ 行動</h3>
+      <button id="submitReportBtn" class="danger">提交最終報告</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* -------------------------
+   加密與本地儲存模組
+------------------------- */
+const SECRET_KEY = "MT_KEY_!@#2024"; // 內部混淆金鑰
+const STORAGE_ID = "microbe_adventure_scores_v2";
+
+function xorCipher(text) {
+    let result = "";
+    for (let i = 0; i < text.length; i++) {
+        result += String.fromCharCode(text.charCodeAt(i) ^ SECRET_KEY.charCodeAt(i % SECRET_KEY.length));
+    }
+    return result;
+}
+
+// 加密儲存：JSON -> XOR -> Base64
+function saveLocalData(data) {
+    const jsonString = JSON.stringify(data);
+    const encrypted = btoa(unescape(encodeURIComponent(xorCipher(jsonString))));
+    localStorage.setItem(STORAGE_ID, encrypted);
+}
+
+// 解密讀取：Base64 -> XOR -> JSON
+function loadLocalData() {
+    const raw = localStorage.getItem(STORAGE_ID);
+    if (!raw) return [];
+    try {
+        const decrypted = xorCipher(decodeURIComponent(escape(atob(raw))));
+        return JSON.parse(decrypted);
+    } catch (e) {
+        console.error("存檔毀損或被竄改！");
+        return [];
+    }
+}
+
+/* -------------------------
+   遊戲邏輯
+------------------------- */
+const IMG_SUCCESS = "https://raw.githubusercontent.com/BiteMachi/microbeMT-adventure/ec7121969adb29521a7de990b2fb47c82e58fc1e/MTsussces.jpg";
+const IMG_FAIL = "https://raw.githubusercontent.com/BiteMachi/microbeMT-adventure/ec7121969adb29521a7de990b2fb47c82e58fc1e/MTfail.jpg";
+
+const CATEGORIES = ["GPC", "GNC", "GPB", "GNB", "YEAST", "FUNGI"];
+const SPECIES_MAP = {
+  GNB: ["Escherichia coli", "Klebsiella pneumoniae", "Pseudomonas aeruginosa", "Salmonella enterica"],
+  GPC: ["Staphylococcus aureus", "Streptococcus pyogenes"],
+  GNC: ["Neisseria gonorrhoeae", "Moraxella catarrhalis"],
+  GPB: ["Bacillus anthracis", "Listeria monocytogenes"],
+  YEAST: ["Candida albicans"],
+  FUNGI: ["Aspergillus fumigatus"]
+};
+
+const PATIENT_DATABASE = [
+  {
+    description: "56歲、婦人、自述排尿困難、排尿時會痛且尿液混濁。",
+    specimen: "尿液 (Urine)",
+    correctOrganism: "Escherichia coli",
+    correctCategory: "GNB",
+    correctMedia: ["BAP", "EMB"],
+    images: {
+      colony: "https://raw.githubusercontent.com/BiteMachi/microbeMT-adventure/33ef8da8a06ecc9322425246ca823e2b54cb08f6/Ecolionbapemb.jpg",
+      gram: "https://raw.githubusercontent.com/BiteMachi/microbeMT-adventure/19f8e3a2ee8c944744c92e55e9ba10f5d4db9b86/Ecoligramstain.jpg",
+      biochem: "https://raw.githubusercontent.com/BiteMachi/microbeMT-adventure/ec7121969adb29521a7de990b2fb47c82e58fc1e/Ecoli%208%20bio02.jpg",
+    }
+  },
+  {
+    description: "22歲、男性、皮膚傷口紅腫化膿，並有發燒現象。",
+    specimen: "膿液 (Pus)",
+    correctOrganism: "Staphylococcus aureus",
+    correctCategory: "GPC",
+    correctMedia: ["BAP", "CHO", "CNA", "EMB"],
+    images: {
+      colony: "https://raw.githubusercontent.com/BiteMachi/microbeMT-adventure/33ef8da8a06ecc9322425246ca823e2b54cb08f6/SAonbap.jpg",
+      gram: "https://raw.githubusercontent.com/BiteMachi/microbeMT-adventure/6b897dc4c948719b45d390cbf8599a6a9fe0e3de/GPCincluster.jpg",
+      biochem: "https://placehold.co/400x300/334155/f8fafc?text=Catalase:+,Coagulase:+",
+    }
+  }
+];
+
+let globalScore = 100;
+let curedCount = 0;
+let totalTimer = 0;
+let timerInterval = null;
+let currentPatient = null;
+let usedMethods = new Set();
+let remainingCases = [];
+let gramValidated = false;
+let bioValidated = false;
+
+function init() {
+  document.getElementById('startBtn').onclick = startGame;
+  document.getElementById('viewLeaderboardBtn').onclick = fetchAndShowLeaderboard;
+  document.getElementById('submitReportBtn').onclick = showReportFinalSelection;
+}
+
+function showNotification(text, type = 'info') {
+    const overlay = document.getElementById('notification-overlay');
+    overlay.textContent = text;
+    overlay.style.display = 'block';
+    overlay.style.background = type === 'error' ? '#ef4444' : (type === 'success' ? '#10b981' : '#3b82f6');
+    overlay.style.animation = 'none';
+    overlay.offsetHeight; 
+    overlay.style.animation = 'fadeInOut 2s forwards';
+    setTimeout(() => { overlay.style.display = 'none'; }, 2000);
+}
+
+function startGame() {
+  globalScore = 100; curedCount = 0; totalTimer = 0;
+  remainingCases = [...PATIENT_DATABASE];
+  document.getElementById('startCard').style.display = 'none';
+  document.getElementById('actionPanel').style.display = 'block';
+  startTimer();
+  nextPatient();
+}
+
+function startTimer() {
+  if(timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    totalTimer++;
+    document.getElementById('timer').textContent = totalTimer;
+  }, 1000);
+}
+
+function updateSidebar() {
+  const bar = document.getElementById('scoreBar');
+  const safeScore = Math.max(0, globalScore);
+  bar.style.width = Math.min(100, safeScore) + "%";
+  bar.textContent = safeScore;
+  document.getElementById('correctCount').textContent = curedCount;
+  if (globalScore <= 0) endGame("FAILED", "專業分數歸零，你被撤銷了醫檢師執照！");
+}
+
+function pushMemory(msg) {
+  const m = document.getElementById('memory');
+  m.textContent += msg + "\n";
+  m.scrollTop = m.scrollHeight;
+}
+
+function changeScore(delta, reason) {
+  globalScore += delta;
+  pushMemory(`系統：${delta > 0 ? '+' : ''}${delta} 分 (${reason})`);
+  showNotification(`${reason} (${delta > 0 ? '+' : ''}${delta}分)`, delta < 0 ? 'error' : 'success');
+  updateSidebar();
+}
+
+function nextPatient() {
+  if (remainingCases.length === 0) {
+    endGame("SUCCESS", "恭喜！你已完成所有病案鑑定。");
+    return;
+  }
+  const randIdx = Math.floor(Math.random() * remainingCases.length);
+  currentPatient = remainingCases.splice(randIdx, 1)[0];
+  usedMethods.clear();
+  gramValidated = false;
+  bioValidated = false;
+  pushMemory("-----------------------");
+  pushMemory(`【新病案】系統派件中...`);
+  updateSidebar();
+  showStepCulture();
+}
+
+function showStepCulture() {
+  const area = document.getElementById('gameArea');
+  area.innerHTML = `
+    <div class="card">
+      <h2>步驟一：選擇培養基</h2>
+      <div class="case-summary">
+        <span class="specimen-tag">檢體類別：${currentPatient.specimen}</span><br>
+        <strong>📋 病歷描述：</strong><br>${currentPatient.description}
+      </div>
+      <div class="option-grid" id="mediaGrid"></div>
+      <button id="validateMediaBtn">確認接種</button>
+    </div>`;
+  const mediaList = ["BAP", "EMB", "CHO", "CNA", "SDA", "XLD"];
+  const grid = document.getElementById('mediaGrid');
+  mediaList.forEach(m => {
+    grid.innerHTML += `<label class="checkbox-item"><input type="checkbox" value="${m}" class="media-cb"> ${m}</label>`;
+  });
+  document.getElementById('validateMediaBtn').onclick = validateMedia;
+}
+
+function validateMedia() {
+  const selected = Array.from(document.querySelectorAll('.media-cb:checked')).map(el => el.value);
+  if (selected.length === 0) return;
+  const correct = currentPatient.correctMedia;
+  if (selected.length === correct.length && selected.every(val => correct.includes(val))) {
+    showNotification("培養基組合正確！", "success");
+    pushMemory("醫檢紀錄：培養基組合正確。");
+    showStepIdentification();
+  } else {
+    changeScore(-10, "培養基選擇錯誤！");
+  }
+}
+
+function showStepIdentification() {
+  const area = document.getElementById('gameArea');
+  area.innerHTML = `
+    <div class="card">
+      <h2>步驟二：微生物鑑定</h2>
+      <div id="imageViewer" class="image-viewer" style="display: block;">
+        <div id="imageTitle" class="image-title" style="color:#60a5fa;font-weight:bold;margin-bottom:5px">🧫 菌落觀察</div>
+        <img id="displayImg" src="${currentPatient.images.colony}" alt="影像" style="max-width:100%; border-radius:4px">
+      </div>
+      <div id="identifyButtons" style="margin-top: 15px;">
+        <button id="btn-gram">Gram stain</button>
+        <button id="btn-mass">Mass spectrometry</button>
+        <button id="btn-vitek">VITEK 2</button>
+        <button id="btn-bio">傳統生化試驗</button>
+      </div>
+      <div id="gramSelectorArea"></div>
+    </div>
+  `;
+  document.getElementById('btn-gram').onclick = handleGramStain;
+  document.getElementById('btn-mass').onclick = handleMassSpec;
+  document.getElementById('btn-vitek').onclick = handleVitek;
+  document.getElementById('btn-bio').onclick = handleBiochem;
+  updateMethodButtons();
+}
+
+function updateMethodButtons() {
+  document.getElementById('btn-gram').disabled = (usedMethods.has('gram') && gramValidated);
+  document.getElementById('btn-mass').disabled = usedMethods.has('mass');
+  document.getElementById('btn-vitek').disabled = usedMethods.has('vitek');
+  document.getElementById('btn-bio').disabled = bioValidated;
+}
+
+function handleGramStain() {
+  usedMethods.add('gram');
+  document.getElementById('displayImg').src = currentPatient.images.gram;
+  document.getElementById('imageTitle').textContent = "🔬 Gram Stain 影像觀察";
+  const selectorArea = document.getElementById('gramSelectorArea');
+  selectorArea.innerHTML = `
+    <div class="card" style="margin-top:15px; background:#334155">
+      <p>請選擇正確型態：</p>
+      ${CATEGORIES.map(c => `<button class="secondary" onclick="window.validateGramType('${c}')">${c}</button>`).join('')}
+    </div>`;
+}
+
+window.validateGramType = (selectedType) => {
+  if (selectedType === currentPatient.correctCategory) {
+    gramValidated = true;
+    showNotification("型態判讀正確！", "success");
+    pushMemory("醫檢紀錄：鑑定型態為 " + selectedType);
+    document.getElementById('gramSelectorArea').innerHTML = "";
+    updateMethodButtons();
+  } else {
+    changeScore(-10, "型態判讀錯誤。");
+  }
+};
+
+function handleMassSpec() {
+  usedMethods.add('mass');
+  if (Math.random() < 0.5) {
+    changeScore(-20, "質譜儀故障，無法獲得結果。");
+  } else {
+    showNotification("質譜鑑定完成", "success");
+    pushMemory(`鑑定紀錄：質譜結果顯示為 ${currentPatient.correctOrganism}`);
+  }
+  updateMethodButtons();
+}
+
+function handleVitek() {
+  usedMethods.add('vitek');
+  if (Math.random() < 0.4) {
+    changeScore(-20, "VITEK 2 鑑定率過低，無法確認。");
+  } else {
+    showNotification("VITEK 2 鑑定完成", "success");
+    pushMemory(`鑑定紀錄：VITEK 2 結果為 ${currentPatient.correctOrganism}`);
+  }
+  updateMethodButtons();
+}
+
+function handleBiochem() {
+  document.getElementById('displayImg').src = currentPatient.images.biochem;
+  document.getElementById('imageTitle').textContent = "🧪 生化反應管觀察";
+  
+  const area = document.getElementById('gameArea');
+  if (document.getElementById('bio-card')) return;
+
+  const card = document.createElement('div');
+  card.className = "card"; card.id = "bio-card";
+  card.innerHTML = `
+    <h3>傳統生化判讀</h3>
+    <p>請依據上方圖片判讀大類：</p>
+    <div id="bioControlArea">
+      ${CATEGORIES.map(c => `<button onclick="window.validateBioCategory('${c}')">${c}</button>`).join('')}
+    </div>`;
+  area.appendChild(card);
+}
+
+window.validateBioCategory = (cat) => {
+  if (cat === currentPatient.correctCategory) {
+    showNotification("大類判讀正確", "success");
+    const bioControlArea = document.getElementById('bioControlArea');
+    bioControlArea.innerHTML = `
+      <p>請選擇最終鑑定菌種：</p>
+      ${SPECIES_MAP[cat].map(s => `<button onclick="window.finishBioIdentification('${s}')">${s}</button>`).join('')}
+    `;
+  } else {
+    changeScore(-30, "大類選錯，試劑浪費！");
+  }
+};
+
+window.finishBioIdentification = (name) => {
+  if (name === currentPatient.correctOrganism) {
+    bioValidated = true;
+    showNotification("生化鑑定正確！", "success");
+    pushMemory(`鑑定紀錄：生化試驗確認為 ${name}`);
+    showStepIdentification();
+  } else {
+    changeScore(-30, "生化菌種判定錯誤。");
+  }
+};
+
+window.showReportFinalSelection = () => {
+  const area = document.getElementById('gameArea');
+  area.innerHTML = `<div class="card"><h2>🏥 提交最終報告</h2><p>⚠️ 請謹慎呈報，錯誤將直接吊銷執照：</p>
+    ${CATEGORIES.map(c => `<button onclick="window.showFinalSpeciesList('${c}')">${c}</button>`).join('')}
+    <br><button onclick="window.showStepIdentification()" style="background:#475569">返回</button></div>`;
+};
+
+window.showFinalSpeciesList = (cat) => {
+  const area = document.getElementById('gameArea');
+  area.innerHTML = `<div class="card"><h2>🏥 最終呈報 (${cat})</h2>
+    ${SPECIES_MAP[cat].map(s => `<button onclick="window.finalizeGame('${s}')">${s}</button>`).join('')}
+    <br><button onclick="window.showReportFinalSelection()" style="background:#475569">返回</button></div>`;
+};
+
+window.finalizeGame = (name) => {
+  if (name === currentPatient.correctOrganism) {
+    curedCount++;
+    showNotification("診斷正確！病患康復。", "success");
+    nextPatient();
+  } else {
+    endGame("FAILED", `致命醫療疏失！鑑定錯誤：正確應為 ${currentPatient.correctOrganism}。`);
+  }
+};
+
+async function endGame(type, reason) {
+  clearInterval(timerInterval);
+  document.getElementById('actionPanel').style.display = 'none';
+  const area = document.getElementById('gameArea');
+  
+  if (type === "SUCCESS") {
+    area.innerHTML = `
+      <div class="card" style="text-align:center; border:3px solid #10b981">
+        <h1 style="color:#10b981">🏆 鑑定成功</h1>
+        <img src="${IMG_SUCCESS}" class="result-img">
+        <p>${reason}</p>
+        <p>治癒：${curedCount} | 耗時：${totalTimer}秒</p>
+        <div id="saveForm"><input type="text" id="playerName" placeholder="醫檢師姓名"> <button id="saveBtn">登錄成績</button></div>
+        <button onclick="location.reload()" class="secondary">返回選單</button>
+      </div>`;
+    document.getElementById('saveBtn').onclick = async () => {
+      const name = document.getElementById('playerName').value.trim();
+      if (!name) return;
+      if (name === "HSU114608") { showAdminMenu(); return; }
+      
+      // 儲存至本地加密資料
+      const scores = loadLocalData();
+      scores.push({ name, score: totalTimer, cured: curedCount, date: new Date().toISOString() });
+      scores.sort((a, b) => a.score - b.score);
+      saveLocalData(scores.slice(0, 50)); // 只存前50名
+      
+      fetchAndShowLeaderboard();
+    };
+  } else {
+    area.innerHTML = `
+      <div class="card" style="text-align:center; border:3px solid #ef4444">
+        <h1 style="color:#ef4444">💀 執業終止</h1>
+        <img src="${IMG_FAIL}" class="result-img">
+        <p>${reason}</p>
+        <button onclick="location.reload()">重新開始</button>
+      </div>`;
+  }
+}
+
+async function fetchAndShowLeaderboard() {
+  const area = document.getElementById('gameArea');
+  document.getElementById('startCard').style.display = 'none';
+  area.innerHTML = `<div class="card"><h2>🏆 本地排行 (加密存檔)</h2><div id="lb-content">載入中...</div><button onclick="location.reload()">返回</button></div>`;
+  
+  const data = loadLocalData();
+  let html = `<table id="leaderboardTable"><tr><th>名次</th><th>姓名</th><th>時間</th><th>治癒數</th></tr>`;
+  data.forEach((r, i) => html += `<tr><td>${i+1}</td><td>${r.name}</td><td>${r.score}s</td><td>${r.cured}</td></tr>`);
+  document.getElementById('lb-content').innerHTML = data.length ? html + "</table>" : "尚無紀錄。";
+}
+
+async function showAdminMenu() {
+  const area = document.getElementById('gameArea');
+  area.innerHTML = `
+    <div class="card" style="border:2px solid #ef4444">
+      <h2 style="color:#ef4444">🔧 管理權限選單</h2>
+      <p>請選擇排行維護動作：</p>
+      <button class="danger" id="clearAllBtn">🗑️ 清空本地排行</button>
+      <br><br>
+      <button onclick="location.reload()" style="background:#475569">退出管理模式</button>
+    </div>`;
+
+  document.getElementById('clearAllBtn').onclick = async () => {
+    if(!confirm("確定要刪除所有本地排行榜資料嗎？此動作不可復原。")) return;
+    localStorage.removeItem(STORAGE_ID);
+    showNotification("已清空本地排行", "success");
+    location.reload();
+  };
+}
+
+init();
+</script>
+</body>
+</html>
